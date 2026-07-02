@@ -29,6 +29,83 @@ def default_output_path(scan_root: Path) -> Path:
     return scan_root / f"{safe_name}_folder_sizes.xlsx"
 
 
+def choose_folder_dialog(parent: tk.Misc | None = None, title: str = "选择要扫描的文件夹") -> str | None:
+    """Open a folder picker. Uses macOS native dialog on Darwin for reliability."""
+    if sys.platform == "darwin":
+        escaped_title = title.replace('"', '\\"')
+        script = f'POSIX path of (choose folder with prompt "{escaped_title}")'
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+            if result.returncode == 0:
+                path = result.stdout.strip()
+                return path or None
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    if parent is not None:
+        parent.update_idletasks()
+        parent.lift()
+        parent.focus_force()
+
+    selected = filedialog.askdirectory(
+        parent=parent,
+        title=title,
+        initialdir=str(Path.home()),
+        mustexist=True,
+    )
+    return selected or None
+
+
+def choose_save_dialog(
+    parent: tk.Misc | None = None,
+    title: str = "选择 Excel 输出位置",
+    default_name: str = "folder_sizes.xlsx",
+) -> str | None:
+    """Open a save-file picker. Uses macOS native dialog on Darwin for reliability."""
+    if sys.platform == "darwin":
+        escaped_title = title.replace('"', '\\"')
+        escaped_name = default_name.replace('"', '\\"')
+        script = (
+            f'set savePath to choose file name with prompt "{escaped_title}" '
+            f'default name "{escaped_name}"\n'
+            "return POSIX path of savePath"
+        )
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+            if result.returncode == 0:
+                path = result.stdout.strip()
+                if path and not path.lower().endswith(".xlsx"):
+                    path += ".xlsx"
+                return path or None
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    if parent is not None:
+        parent.update_idletasks()
+        parent.lift()
+        parent.focus_force()
+
+    selected = filedialog.asksaveasfilename(
+        parent=parent,
+        title=title,
+        defaultextension=".xlsx",
+        initialdir=str(Path.home()),
+        initialfile=default_name,
+        filetypes=[("Excel 文件", "*.xlsx"), ("所有文件", "*.*")],
+    )
+    return selected or None
+
+
 class FolderSizeMonitorApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -81,18 +158,41 @@ class FolderSizeMonitorApp:
         frame.columnconfigure(1, weight=1)
 
     def _browse_folder(self) -> None:
-        selected = filedialog.askdirectory(title="选择要扫描的文件夹")
+        self.status_var.set("请选择文件夹...")
+        self.root.update_idletasks()
+        try:
+            selected = choose_folder_dialog(self.root, title="选择要扫描的文件夹")
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("错误", f"无法打开文件夹选择器：\n{exc}")
+            self.status_var.set("准备就绪")
+            return
+
+        self.status_var.set("准备就绪")
         if selected:
             self.path_var.set(selected)
             if not self.output_var.get().strip():
                 self.output_var.set(str(default_output_path(Path(selected))))
 
     def _browse_output(self) -> None:
-        selected = filedialog.asksaveasfilename(
-            title="选择 Excel 输出位置",
-            defaultextension=".xlsx",
-            filetypes=[("Excel 文件", "*.xlsx"), ("所有文件", "*.*")],
-        )
+        default_name = "folder_sizes.xlsx"
+        current = self.output_var.get().strip()
+        if current:
+            default_name = Path(current).name
+
+        self.status_var.set("请选择输出位置...")
+        self.root.update_idletasks()
+        try:
+            selected = choose_save_dialog(
+                self.root,
+                title="选择 Excel 输出位置",
+                default_name=default_name,
+            )
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("错误", f"无法打开文件保存选择器：\n{exc}")
+            self.status_var.set("准备就绪")
+            return
+
+        self.status_var.set("准备就绪")
         if selected:
             self.output_var.set(selected)
 
@@ -169,6 +269,11 @@ class FolderSizeMonitorApp:
 
 def main() -> None:
     root = tk.Tk()
+    root.withdraw()
+    root.update_idletasks()
+    root.deiconify()
+    if sys.platform == "darwin":
+        root.createcommand("tk::mac::ReopenApplication", root.deiconify)
     FolderSizeMonitorApp(root)
     root.mainloop()
 
