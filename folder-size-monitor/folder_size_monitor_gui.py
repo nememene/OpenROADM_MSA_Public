@@ -11,7 +11,7 @@ from pathlib import Path
 
 try:
     import tkinter as tk
-    from tkinter import filedialog, messagebox, ttk
+    from tkinter import filedialog, messagebox
 except ImportError:
     print(
         "错误：未安装 tkinter，无法打开图形界面。\n"
@@ -22,6 +22,45 @@ except ImportError:
     raise SystemExit(1)
 
 from folder_size_monitor import run_scan
+
+
+def configure_macos_tk(root: tk.Tk) -> None:
+    """Fix Retina display scaling so buttons receive clicks correctly."""
+    if sys.platform != "darwin":
+        return
+
+    os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
+    try:
+        scaling = root.winfo_fpixels("1i") / 72.0
+        root.tk.call("tk", "scaling", scaling)
+    except tk.TclError:
+        pass
+
+
+def show_alert(title: str, message: str, alert_type: str = "info") -> None:
+    """Show an alert dialog. Uses macOS native dialog on Darwin for reliability."""
+    if sys.platform == "darwin":
+        escaped_title = title.replace('"', '\\"')
+        escaped_message = message.replace('"', '\\"').replace("\n", "\\n")
+        icon = {"info": "note", "warning": "caution", "error": "stop"}.get(alert_type, "note")
+        script = (
+            f'display dialog "{escaped_message}" '
+            f'with title "{escaped_title}" '
+            f'buttons {{"OK"}} default button "OK" '
+            f'with icon {icon}'
+        )
+        try:
+            subprocess.run(["osascript", "-e", script], check=False)
+            return
+        except OSError:
+            pass
+
+    if alert_type == "warning":
+        messagebox.showwarning(title, message)
+    elif alert_type == "error":
+        messagebox.showerror(title, message)
+    else:
+        messagebox.showinfo(title, message)
 
 
 def default_output_path(scan_root: Path) -> Path:
@@ -111,51 +150,135 @@ class FolderSizeMonitorApp:
         self.root = root
         self.root.title("文件夹大小监控")
         self.root.resizable(False, False)
+        self.root.configure(bg="#2b2b2b")
+        configure_macos_tk(self.root)
         self._build_ui()
-        self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.root.bind("<Return>", lambda _event: self._start_scan())
+        self.root.bind("<Escape>", lambda _event: self._on_cancel())
+
+    def _make_button(self, parent: tk.Misc, text: str, command, primary: bool = False) -> tk.Button:
+        bg = "#0a84ff" if primary else "#555555"
+        active_bg = "#0066cc" if primary else "#666666"
+        button = tk.Button(
+            parent,
+            text=text,
+            command=command,
+            width=12,
+            height=1,
+            padx=12,
+            pady=8,
+            bg=bg,
+            fg="white",
+            activebackground=active_bg,
+            activeforeground="white",
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightthickness=0,
+            cursor="hand2",
+            font=("PingFang SC", "Helvetica", "Arial", 13),
+        )
+        return button
 
     def _build_ui(self) -> None:
-        frame = ttk.Frame(self.root, padding=16)
-        frame.grid(row=0, column=0, sticky="nsew")
+        frame = tk.Frame(self.root, padx=20, pady=20, bg="#2b2b2b")
+        frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(frame, text="请输入要扫描的文件夹地址：").grid(
-            row=0, column=0, columnspan=3, sticky="w", pady=(0, 8)
-        )
+        label_font = ("PingFang SC", "Helvetica", "Arial", 13)
+        entry_font = ("Menlo", "Monaco", "Courier", 12)
+
+        tk.Label(
+            frame,
+            text="请输入要扫描的文件夹地址：",
+            bg="#2b2b2b",
+            fg="#f0f0f0",
+            font=label_font,
+            anchor="w",
+        ).pack(fill=tk.X, pady=(0, 8))
+
+        path_row = tk.Frame(frame, bg="#2b2b2b")
+        path_row.pack(fill=tk.X, pady=(0, 12))
 
         self.path_var = tk.StringVar()
-        path_entry = ttk.Entry(frame, textvariable=self.path_var, width=52)
-        path_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=(0, 8))
+        path_entry = tk.Entry(
+            path_row,
+            textvariable=self.path_var,
+            width=48,
+            font=entry_font,
+            bg="#1e1e1e",
+            fg="#ffffff",
+            insertbackground="#ffffff",
+            relief=tk.FLAT,
+            highlightthickness=1,
+            highlightbackground="#555555",
+            highlightcolor="#0a84ff",
+        )
+        path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         path_entry.focus_set()
 
-        ttk.Button(frame, text="浏览...", command=self._browse_folder).grid(
-            row=1, column=2, sticky="e"
-        )
+        self._make_button(path_row, "浏览...", self._browse_folder).pack(side=tk.RIGHT)
 
-        ttk.Label(frame, text="Excel 输出路径：").grid(row=2, column=0, sticky="w", pady=(12, 4))
+        tk.Label(
+            frame,
+            text="Excel 输出路径：",
+            bg="#2b2b2b",
+            fg="#f0f0f0",
+            font=label_font,
+            anchor="w",
+        ).pack(fill=tk.X, pady=(0, 8))
+
+        output_row = tk.Frame(frame, bg="#2b2b2b")
+        output_row.pack(fill=tk.X, pady=(0, 12))
+
         self.output_var = tk.StringVar()
-        ttk.Entry(frame, textvariable=self.output_var, width=52).grid(
-            row=3, column=0, columnspan=2, sticky="ew", padx=(0, 8)
-        )
-        ttk.Button(frame, text="选择...", command=self._browse_output).grid(
-            row=3, column=2, sticky="e"
-        )
+        tk.Entry(
+            output_row,
+            textvariable=self.output_var,
+            width=48,
+            font=entry_font,
+            bg="#1e1e1e",
+            fg="#ffffff",
+            insertbackground="#ffffff",
+            relief=tk.FLAT,
+            highlightthickness=1,
+            highlightbackground="#555555",
+            highlightcolor="#0a84ff",
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+
+        self._make_button(output_row, "选择...", self._browse_output).pack(side=tk.RIGHT)
 
         self.status_var = tk.StringVar(value="准备就绪")
-        ttk.Label(frame, textvariable=self.status_var).grid(
-            row=4, column=0, columnspan=3, sticky="w", pady=(12, 8)
-        )
+        tk.Label(
+            frame,
+            textvariable=self.status_var,
+            bg="#2b2b2b",
+            fg="#aaaaaa",
+            font=label_font,
+            anchor="w",
+        ).pack(fill=tk.X, pady=(0, 8))
 
-        self.progress = ttk.Progressbar(frame, mode="indeterminate", length=420)
-        self.progress.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(0, 12))
+        self.progress = tk.Canvas(frame, height=6, bg="#1e1e1e", highlightthickness=0)
+        self.progress.pack(fill=tk.X, pady=(0, 16))
+        self._progress_bar = self.progress.create_rectangle(0, 0, 0, 6, fill="#0a84ff", width=0)
+        self._progress_animating = False
 
-        button_row = ttk.Frame(frame)
-        button_row.grid(row=6, column=0, columnspan=3, sticky="e")
-        self.start_button = ttk.Button(button_row, text="开始扫描", command=self._start_scan)
-        self.start_button.pack(side="right")
-        ttk.Button(button_row, text="取消", command=self.root.destroy).pack(side="right", padx=(0, 8))
+        button_row = tk.Frame(frame, bg="#2b2b2b")
+        button_row.pack(fill=tk.X)
 
-        frame.columnconfigure(0, weight=1)
-        frame.columnconfigure(1, weight=1)
+        self.start_button = self._make_button(button_row, "开始扫描", self._start_scan, primary=True)
+        self.start_button.pack(side=tk.RIGHT)
+
+        self.cancel_button = self._make_button(button_row, "取消", self._on_cancel)
+        self.cancel_button.pack(side=tk.RIGHT, padx=(0, 10))
+
+        self.root.update_idletasks()
+        self.root.minsize(self.root.winfo_width(), self.root.winfo_height())
+
+    def _on_cancel(self) -> None:
+        self.status_var.set("正在退出...")
+        self.root.update_idletasks()
+        self.root.quit()
+        self.root.destroy()
 
     def _browse_folder(self) -> None:
         self.status_var.set("请选择文件夹...")
@@ -163,15 +286,17 @@ class FolderSizeMonitorApp:
         try:
             selected = choose_folder_dialog(self.root, title="选择要扫描的文件夹")
         except Exception as exc:  # noqa: BLE001
-            messagebox.showerror("错误", f"无法打开文件夹选择器：\n{exc}")
-            self.status_var.set("准备就绪")
+            self.status_var.set("打开文件夹选择器失败")
+            show_alert("错误", f"无法打开文件夹选择器：\n{exc}", "error")
             return
 
-        self.status_var.set("准备就绪")
         if selected:
             self.path_var.set(selected)
             if not self.output_var.get().strip():
                 self.output_var.set(str(default_output_path(Path(selected))))
+            self.status_var.set(f"已选择：{selected}")
+        else:
+            self.status_var.set("准备就绪")
 
     def _browse_output(self) -> None:
         default_name = "folder_sizes.xlsx"
@@ -188,26 +313,45 @@ class FolderSizeMonitorApp:
                 default_name=default_name,
             )
         except Exception as exc:  # noqa: BLE001
-            messagebox.showerror("错误", f"无法打开文件保存选择器：\n{exc}")
-            self.status_var.set("准备就绪")
+            self.status_var.set("打开保存选择器失败")
+            show_alert("错误", f"无法打开文件保存选择器：\n{exc}", "error")
             return
 
-        self.status_var.set("准备就绪")
         if selected:
             self.output_var.set(selected)
+            self.status_var.set(f"输出到：{selected}")
+        else:
+            self.status_var.set("准备就绪")
 
     def _set_busy(self, busy: bool) -> None:
-        state = "disabled" if busy else "normal"
+        state = tk.DISABLED if busy else tk.NORMAL
         self.start_button.configure(state=state)
+        self.cancel_button.configure(state=state)
         if busy:
-            self.progress.start(12)
+            self._animate_progress()
         else:
-            self.progress.stop()
+            self._progress_animating = False
+            self.progress.coords(self._progress_bar, 0, 0, 0, 6)
+
+    def _animate_progress(self) -> None:
+        self._progress_animating = True
+        width = self.progress.winfo_width() or 420
+
+        def step(position: int = 0) -> None:
+            if not self._progress_animating:
+                return
+            bar_width = max(40, width // 5)
+            start = position % (width + bar_width)
+            self.progress.coords(self._progress_bar, start - bar_width, 0, start, 6)
+            self.root.after(60, lambda: step(position + 20))
+
+        step()
 
     def _start_scan(self) -> None:
         folder_text = self.path_var.get().strip()
         if not folder_text:
-            messagebox.showwarning("提示", "请先输入或选择文件夹地址。")
+            self.status_var.set("请先输入或选择文件夹地址")
+            show_alert("提示", "请先输入或选择文件夹地址。", "warning")
             return
 
         scan_root = Path(folder_text).expanduser()
@@ -215,10 +359,12 @@ class FolderSizeMonitorApp:
         output_path = Path(output_text).expanduser() if output_text else default_output_path(scan_root)
 
         if not scan_root.exists():
-            messagebox.showerror("错误", f"路径不存在：\n{scan_root}")
+            self.status_var.set("路径不存在")
+            show_alert("错误", f"路径不存在：\n{scan_root}", "error")
             return
         if not scan_root.is_dir():
-            messagebox.showerror("错误", f"路径不是文件夹：\n{scan_root}")
+            self.status_var.set("路径不是文件夹")
+            show_alert("错误", f"路径不是文件夹：\n{scan_root}", "error")
             return
 
         self._set_busy(True)
@@ -240,17 +386,18 @@ class FolderSizeMonitorApp:
     def _on_scan_failed(self, message: str) -> None:
         self._set_busy(False)
         self.status_var.set("扫描失败")
-        messagebox.showerror("扫描失败", message)
+        show_alert("扫描失败", message, "error")
 
     def _on_scan_finished(self, folder_count: int, elapsed: float, output_path: Path) -> None:
         self._set_busy(False)
-        self.status_var.set("扫描完成")
         resolved_output = output_path.resolve()
-        messagebox.showinfo(
+        self.status_var.set(f"扫描完成：{resolved_output}")
+        show_alert(
             "扫描完成",
             f"共扫描 {folder_count} 个文件夹\n"
             f"耗时 {elapsed:.1f} 秒\n"
             f"结果已保存到：\n{resolved_output}",
+            "info",
         )
         self._open_output_folder(resolved_output)
 
@@ -269,12 +416,13 @@ class FolderSizeMonitorApp:
 
 def main() -> None:
     root = tk.Tk()
-    root.withdraw()
-    root.update_idletasks()
-    root.deiconify()
     if sys.platform == "darwin":
-        root.createcommand("tk::mac::ReopenApplication", root.deiconify)
+        root.createcommand("tk::mac::ReopenApplication", lambda: root.deiconify())
     FolderSizeMonitorApp(root)
+    root.lift()
+    root.attributes("-topmost", True)
+    root.after(200, lambda: root.attributes("-topmost", False))
+    root.focus_force()
     root.mainloop()
 
 
