@@ -17,6 +17,13 @@
 
 ## 安装
 
+**首次使用请先检测 Python 环境：**
+
+- Windows：双击 `检测Python环境.bat`（会自动检测、安装依赖，无 Python 时尝试用 winget 安装）
+- Linux / macOS：运行 `./检测Python环境.sh`
+
+或手动安装：
+
 ```bash
 pip install -r requirements.txt
 ```
