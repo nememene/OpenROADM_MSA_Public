@@ -21,7 +21,30 @@
 pip install -r requirements.txt
 ```
 
+图形界面使用 Python 自带的 `tkinter`。若双击后无法打开窗口：
+
+- **Windows**：安装 Python 时勾选 `tcl/tk and IDLE`
+- **Linux**：执行 `sudo apt install python3-tk`（或对应发行版的 tk 包）
+
 ## 使用
+
+### 图形界面（双击启动）
+
+安装依赖后，双击以下任一文件即可打开对话框，输入要扫描的文件夹地址：
+
+- `启动文件夹大小监控.bat`（推荐，Windows）
+- `folder_size_monitor.pyw`（Windows，无黑色命令行窗口）
+- `启动文件夹大小监控.sh`（Linux / macOS）
+- `folder_size_monitor_gui.py`（各平台均可运行）
+
+对话框支持：
+
+- 手动输入文件夹路径
+- 点击「浏览...」选择文件夹
+- 自定义 Excel 输出位置
+- 扫描完成后自动提示并打开结果所在目录
+
+### 命令行
 
 ```bash
 # 扫描当前目录

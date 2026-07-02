@@ -188,6 +188,24 @@ def export_to_excel(folders: list[FolderInfo], output_path: Path, scan_root: Pat
     workbook.save(output_path)
 
 
+def run_scan(scan_root: Path, output_path: Path) -> tuple[int, float]:
+    """Scan folders and write Excel report. Returns (folder_count, elapsed_seconds)."""
+    scan_root = scan_root.expanduser().resolve()
+    output_path = output_path.expanduser()
+
+    if not scan_root.exists():
+        raise FileNotFoundError(f"路径不存在: {scan_root}")
+    if not scan_root.is_dir():
+        raise NotADirectoryError(f"路径不是文件夹: {scan_root}")
+
+    start = time.time()
+    sizes = scan_folder_sizes(scan_root)
+    folders = collect_folder_info(scan_root, sizes)
+    export_to_excel(folders, output_path, scan_root)
+    elapsed = time.time() - start
+    return len(folders), elapsed
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="扫描硬盘文件夹大小，并导出包含层级关系的 Excel 报表。",
@@ -209,25 +227,18 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    scan_root = Path(args.path).expanduser()
+    scan_root = Path(args.path)
+    output_path = Path(args.output)
 
-    if not scan_root.exists():
-        print(f"错误：路径不存在 -> {scan_root}", file=sys.stderr)
+    try:
+        print(f"正在扫描: {scan_root.expanduser().resolve()}")
+        folder_count, elapsed = run_scan(scan_root, output_path)
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
         return 1
-    if not scan_root.is_dir():
-        print(f"错误：路径不是文件夹 -> {scan_root}", file=sys.stderr)
-        return 1
 
-    print(f"正在扫描: {scan_root.resolve()}")
-    start = time.time()
-    sizes = scan_folder_sizes(scan_root)
-    folders = collect_folder_info(scan_root, sizes)
-    output_path = Path(args.output).expanduser()
-    export_to_excel(folders, output_path, scan_root)
-    elapsed = time.time() - start
-
-    print(f"扫描完成，共 {len(folders)} 个文件夹")
-    print(f"结果已保存: {output_path.resolve()}")
+    print(f"扫描完成，共 {folder_count} 个文件夹")
+    print(f"结果已保存: {output_path.expanduser().resolve()}")
     print(f"耗时: {elapsed:.1f} 秒")
     return 0
 
